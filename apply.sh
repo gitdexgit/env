@@ -1,12 +1,14 @@
 #!/bin/bash
 
 # 1. Define all required packages for Arch
-# GUI tools: xorg-server, xorg-xinit (for startx), i3-wm, alacritty, dmenu
+# GUI/Terminal: xorg-server, xorg-xinit, i3-wm, alacritty, dmenu, xterm
+# Automation: xdotool, xbindkeys, wmctrl
 needed_packages=(
     git rsync fzf neovim lua luarocks clang
     gcc inetutils openssh base-devel tmux unzip
     rust deno nodejs npm python
-    xorg-server xorg-xinit i3-wm alacritty dmenu
+    xorg-server xorg-xinit i3-wm alacritty dmenu xterm
+    xdotool xbindkeys wmctrl
 )
 
 echo "--- Checking system dependencies... ---"
@@ -55,22 +57,46 @@ if [ -d ".oh-my-zsh" ]; then
     rsync -a .oh-my-zsh/ ~/.oh-my-zsh/
 fi
 
-# 6. General Dotfile Sync
-echo "--- Starting dotfile rsync... ---"
+# 6. General Dotfile & Script Sync
+echo "--- Starting dotfile and script rsync... ---"
 mkdir -p ~/.config ~/.local/share
 
+# Sync standard dotfiles
 rsync -a .zshrc ~/
 rsync -a .zshenv ~/
 rsync -a .tmux.conf ~/
 rsync -a .tmux ~/
+rsync -a .Xresources ~/
+
+# Sync xbindkeys (checks for both common filenames)
+[ -f ".xbindkeysrc" ] && rsync -a .xbindkeysrc ~/
+[ -f ".xbindkeys" ] && rsync -a .xbindkeys ~/
+
+# Sync your scripts folder
+if [ -d "scripts" ]; then
+    echo "--- Syncing scripts to ~/scripts ---"
+    rsync -a scripts/ ~/scripts/
+fi
+
+# Sync config directories
 [ -d ".config" ] && rsync -a .config/ ~/.config/
 [ -d ".local/share/fonts" ] && rsync -a .local/share/fonts ~/.local/share/
 
-# 7. Check/Create .xinitrc
+# 7. Neovim Config Check & Clone
+if [ ! -d "$HOME/.config/nvim" ] || [ -z "$(ls -A "$HOME/.config/nvim")" ]; then
+    echo "--- Neovim config missing or empty. Cloning from GitHub... ---"
+    mkdir -p "$HOME/.config/nvim"
+    git clone https://www.github.com/gitdexgit/nvim "$HOME/.config/nvim"
+fi
+
+# 8. Check/Create .xinitrc
 if [ ! -f "$HOME/.xinitrc" ]; then
     echo "--- Creating basic .xinitrc... ---"
     cat <<EOF > "$HOME/.xinitrc"
 #!/bin/sh
+
+# Load Xresources (colors, fonts for xterm/urxvt)
+[ -f ~/.Xresources ] && xrdb -merge ~/.Xresources &
 
 # Set environment variables
 export TERMINAL=alacritty
@@ -81,19 +107,17 @@ if command -v spice-vdagent > /dev/null; then
     spice-vdagent &
 fi
 
-# Setup resolution if in VM (adjust Virtual-1 if needed)
-# xrandr --output Virtual-1 --mode 1360x768 &
+# Start automation tools
+[ -f ~/.xbindkeysrc ] && xbindkeys &
+[ -f ~/.xbindkeys ] && xbindkeys -f ~/.xbindkeys &
 
-# Execute Window Manager (MUST BE LAST)
+# Execute Window Manager
 exec i3
 EOF
     chmod +x "$HOME/.xinitrc"
-    echo "Created $HOME/.xinitrc with Alacritty and i3 defaults."
-else
-    echo "--- .xinitrc already exists. Skipping creation. ---"
 fi
 
 echo "--- Setup Complete! ---"
+echo "--- System Info ---"
 echo "Hostname IP: $(hostname -i)"
-echo "Type 'startx' to launch i3."
-
+echo "Type 'startx' to launch i3 with your synced configs."
